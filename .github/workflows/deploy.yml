@@ -48,8 +48,7 @@ jobs:
 
             echo "Connected to EC2 successfully!"
 
-            sudo docker compose pull frontend
-            sudo docker compose up -d --no-deps frontend
-            sudo docker compose ps frontend
-
+            sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/taskflow-frontend:latest
+            sudo docker rm -f my_container_frontend || true
+            sudo docker run -d --name my_container_frontend -p 80:80 ${{secrets.DOCKERHUB_USERNAME}}/taskflow-frontend:latest
             echo "Frontend deployment completed!"
