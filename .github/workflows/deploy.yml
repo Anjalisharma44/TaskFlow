@@ -1,4 +1,4 @@
-name: Build and Push TaskFlow Images
+name: Build and Push TaskFlow Frontend
 
 on:
   push:
@@ -10,8 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  docker-publish:
+  frontend-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,32 +29,27 @@ jobs:
       - name: Build and push frontend
         uses: docker/build-push-action@v6
         with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
+          context: ./Frontend
+          file: ./Frontend/dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/taskflow-frontend:latest
 
-      - name: Build and push backend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/taskflow-backend:latest 
-      - name: EC2Conect
+      - name: Deploy frontend on EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key:  ${{ secrets.EC2_SSH_KEY }}    
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
+          command_timeout: 20m
           script: |
-            echo "Successfully connected to EC2!"
-            docker --version
-            sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/taskflow-frontend:latest
-            echo "pulled"
-            sudo docker rm -f taskflow-contaimer || true
-            echo docker old one removed
-            sudo docker run -d --name taskflow-conatiner -p 80:80 ${{ secrets.DOCKERHUB_USERNAME }}/taskflow-frontend:latest
-            echo container created
+            set -e
+            cd /home/ec2-user/taskflow-deploy
 
+            echo "Connected to EC2 successfully!"
+
+            sudo docker compose pull frontend
+            sudo docker compose up -d --no-deps frontend
+            sudo docker compose ps frontend
+
+            echo "Frontend deployment completed!"
