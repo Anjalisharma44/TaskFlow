@@ -4,30 +4,39 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'Frontend/**'
+      - '.github/workflows/deploy.yml'
+
+
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  frontend-deploy:
-    runs-on: ubuntu-latest
 
-    env:
-      DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      IMAGE_NAME: taskflow-frontend
-      IMAGE_TAG: latest
+  # 1. Test frontend on multiple operating systems
+  frontend-test:
+    name: Frontend Test - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
 
     steps:
-      - name: Start metrics timer
-        id: metrics-start
-        run: |
-          echo "START_TIME=$(date +%s)" >> "$GITHUB_ENV"
-          echo "BUILD_STATUS=not_started" >> "$GITHUB_ENV"
-          echo "DEPLOY_STATUS=not_started" >> "$GITHUB_ENV"
-
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate frontend HTML
+        shell: bash
+        run: |
+          python -c "from pathlib import Path; p=Path('Frontend'); files=list(p.rglob('*.html')) if p.exists() else []; print('HTML files:', len(files)); assert files, 'Frontend folder or HTML files missing'"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -53,24 +62,24 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      - name: Record build metrics
-        if: always()
-        run: |
-          END_TIME=$(date +%s)
-          DURATION=$((END_TIME - BUILD_START))
-          echo "BUILD_DURATION=$DURATION" >> "$GITHUB_ENV"
+      # - name: Record build metrics
+      #   if: always()
+      #   run: |
+      #     END_TIME=$(date +%s)
+      #     DURATION=$((END_TIME - BUILD_START))
+      #     echo "BUILD_DURATION=$DURATION" >> "$GITHUB_ENV"
 
-          if [ "${{ steps.docker-build.outcome }}" = "success" ]; then
-            echo "BUILD_STATUS=success" >> "$GITHUB_ENV"
-          else
-            echo "BUILD_STATUS=failure" >> "$GITHUB_ENV"
-          fi
+      #     if [ "${{ steps.docker-build.outcome }}" = "success" ]; then
+      #       echo "BUILD_STATUS=success" >> "$GITHUB_ENV"
+      #     else
+      #       echo "BUILD_STATUS=failure" >> "$GITHUB_ENV"
+      #     fi
 
-          echo "Docker build duration: ${DURATION} seconds"
+      #     echo "Docker build duration: ${DURATION} seconds"
 
-      - name: Start deployment timer
-        if: steps.docker-build.outcome == 'success'
-        run: echo "DEPLOY_START=$(date +%s)" >> "$GITHUB_ENV"
+      # - name: Start deployment timer
+      #   if: steps.docker-build.outcome == 'success'
+      #   run: echo "DEPLOY_START=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Deploy frontend on EC2
         id: deploy
@@ -91,44 +100,44 @@ jobs:
               -p 80:80 \
               ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
 
-      - name: Record deployment metrics
-        if: always()
-        run: |
-          if [ "${{ steps.deploy.outcome }}" = "success" ]; then
-            END_TIME=$(date +%s)
-            DURATION=$((END_TIME - DEPLOY_START))
-            echo "DEPLOY_STATUS=success" >> "$GITHUB_ENV"
-            echo "DEPLOY_DURATION=$DURATION" >> "$GITHUB_ENV"
-          elif [ "${{ steps.deploy.outcome }}" = "skipped" ]; then
-            echo "DEPLOY_STATUS=skipped" >> "$GITHUB_ENV"
-            echo "DEPLOY_DURATION=0" >> "$GITHUB_ENV"
-          else
-            echo "DEPLOY_STATUS=failure" >> "$GITHUB_ENV"
-            echo "DEPLOY_DURATION=0" >> "$GITHUB_ENV"
-          fi
+      # - name: Record deployment metrics
+      #   if: always()
+      #   run: |
+      #     if [ "${{ steps.deploy.outcome }}" = "success" ]; then
+      #       END_TIME=$(date +%s)
+      #       DURATION=$((END_TIME - DEPLOY_START))
+      #       echo "DEPLOY_STATUS=success" >> "$GITHUB_ENV"
+      #       echo "DEPLOY_DURATION=$DURATION" >> "$GITHUB_ENV"
+      #     elif [ "${{ steps.deploy.outcome }}" = "skipped" ]; then
+      #       echo "DEPLOY_STATUS=skipped" >> "$GITHUB_ENV"
+      #       echo "DEPLOY_DURATION=0" >> "$GITHUB_ENV"
+      #     else
+      #       echo "DEPLOY_STATUS=failure" >> "$GITHUB_ENV"
+      #       echo "DEPLOY_DURATION=0" >> "$GITHUB_ENV"
+      #     fi
 
-      - name: Publish workflow metrics
-        if: always()
-        env:
-          BUILD_SECONDS: ${{ env.BUILD_DURATION }}
-          DEPLOY_SECONDS: ${{ env.DEPLOY_DURATION }}
-          BUILD_RESULT: ${{ env.BUILD_STATUS }}
-          DEPLOY_RESULT: ${{ env.DEPLOY_STATUS }}
-        run: |
-          END_TIME=$(date +%s)
-          TOTAL_DURATION=$((END_TIME - START_TIME))
+      # - name: Publish workflow metrics
+      #   if: always()
+      #   env:
+      #     BUILD_SECONDS: ${{ env.BUILD_DURATION }}
+      #     DEPLOY_SECONDS: ${{ env.DEPLOY_DURATION }}
+      #     BUILD_RESULT: ${{ env.BUILD_STATUS }}
+      #     DEPLOY_RESULT: ${{ env.DEPLOY_STATUS }}
+      #   run: |
+      #     END_TIME=$(date +%s)
+      #     TOTAL_DURATION=$((END_TIME - START_TIME))
 
-          echo "## TaskFlow Deployment Metrics" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Metric | Result |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Total measured time | ${TOTAL_DURATION} seconds |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Docker build duration | ${BUILD_SECONDS:-N/A} seconds |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Deployment duration | ${DEPLOY_SECONDS:-N/A} seconds |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Build status | ${BUILD_RESULT:-unknown} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Deployment status | ${DEPLOY_RESULT:-unknown} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Image | ${DOCKER_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "## TaskFlow Deployment Metrics" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Metric | Result |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Total measured time | ${TOTAL_DURATION} seconds |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Docker build duration | ${BUILD_SECONDS:-N/A} seconds |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Deployment duration | ${DEPLOY_SECONDS:-N/A} seconds |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Build status | ${BUILD_RESULT:-unknown} |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Deployment status | ${DEPLOY_RESULT:-unknown} |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Image | ${DOCKER_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} |" >> "$GITHUB_STEP_SUMMARY"
 
-          echo "Total measured time: ${TOTAL_DURATION} seconds"
-          echo "Build status: ${BUILD_RESULT:-unknown}"
-          echo "Deployment status: ${DEPLOY_RESULT:-unknown}"
+      #     echo "Total measured time: ${TOTAL_DURATION} seconds"
+      #     echo "Build status: ${BUILD_RESULT:-unknown}"
+      #     echo "Deployment status: ${DEPLOY_RESULT:-unknown}"
