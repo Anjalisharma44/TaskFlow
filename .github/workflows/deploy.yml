@@ -38,6 +38,21 @@ jobs:
         run: |
           python -c "from pathlib import Path; p=Path('Frontend'); files=list(p.rglob('*.html')) if p.exists() else []; print('HTML files:', len(files)); assert files, 'Frontend folder or HTML files missing'"
 
+          
+   frontend-build: 
+    name: Build and Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: frontend-test
+
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      IMAGE_NAME: taskflow-frontend
+      IMAGE_TAG: latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -47,9 +62,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Start Docker build timer
-        id: build-start
-        run: echo "BUILD_START=$(date +%s)" >> "$GITHUB_ENV"
+      # Yahan tumhara existing commented build timer
+      # aur build metrics ka block waise hi rakhna.
 
       - name: Build and push frontend
         id: docker-build
@@ -61,6 +75,31 @@ jobs:
           tags: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+
+      # Yahan tumhara existing commented deployment timer
+      # waise hi rakhna.
+
+      - name: Deploy frontend on EC2
+        id: deploy
+        if: steps.docker-build.outcome == 'success'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          command_timeout: 20m
+          script: |
+            set -e
+            sudo docker pull ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+            sudo docker rm -f my_container_frontend || true
+            sudo docker run -d \
+              --name my_container_frontend \
+              -p 80:80 \
+              ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+      # Yahan tumhara existing commented deployment metrics
+      # aur Publish workflow metrics ka block waise hi rakhna.
 
       # - name: Record build metrics
       #   if: always()
@@ -81,24 +120,24 @@ jobs:
       #   if: steps.docker-build.outcome == 'success'
       #   run: echo "DEPLOY_START=$(date +%s)" >> "$GITHUB_ENV"
 
-      - name: Deploy frontend on EC2
-        id: deploy
-        if: steps.docker-build.outcome == 'success'
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          command_timeout: 20m
-          script: |
-            set -e
-            sudo docker pull ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-            sudo docker rm -f my_container_frontend || true
-            sudo docker run -d \
-              --name my_container_frontend \
-              -p 80:80 \
-              ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+      # - name: Deploy frontend on EC2
+      #   id: deploy
+      #   if: steps.docker-build.outcome == 'success'
+      #   uses: appleboy/ssh-action@v1.2.0
+      #   with:
+      #     host: ${{ secrets.EC2_HOST }}
+      #     username: ec2-user
+      #     key: ${{ secrets.EC2_SSH_KEY }}
+      #     port: 22
+      #     command_timeout: 20m
+      #     script: |
+      #       set -e
+      #       sudo docker pull ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+      #       sudo docker rm -f my_container_frontend || true
+      #       sudo docker run -d \
+      #         --name my_container_frontend \
+      #         -p 80:80 \
+      #         ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
 
       # - name: Record deployment metrics
       #   if: always()
@@ -131,7 +170,7 @@ jobs:
       #     echo "" >> "$GITHUB_STEP_SUMMARY"
       #     echo "| Metric | Result |" >> "$GITHUB_STEP_SUMMARY"
       #     echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-      #     echo "| Total measured time | ${TOTAL_DURATION} seconds |" >> "$GITHUB_STEP_SUMMARY"
+      #     echo "| Total measured t    ime | ${TOTAL_DURATION} seconds |" >> "$GITHUB_STEP_SUMMARY"
       #     echo "| Docker build duration | ${BUILD_SECONDS:-N/A} seconds |" >> "$GITHUB_STEP_SUMMARY"
       #     echo "| Deployment duration | ${DEPLOY_SECONDS:-N/A} seconds |" >> "$GITHUB_STEP_SUMMARY"
       #     echo "| Build status | ${BUILD_RESULT:-unknown} |" >> "$GITHUB_STEP_SUMMARY"
